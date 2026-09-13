@@ -21,13 +21,19 @@ export default function Home() {
           DERASS NIH BOSSS
         </h1>
 
-        <div className="pt-2">
+        <div className="pt-2 flex flex-wrap items-center justify-center gap-4">
           <button
             type="button"
             className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-red-600 via-red-500 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-extrabold text-base sm:text-lg tracking-wider uppercase shadow-[0_0_30px_rgba(239,68,68,0.5)] hover:shadow-[0_0_40px_rgba(239,68,68,0.8)] border border-red-400/40 transition-all duration-200 active:scale-95 cursor-pointer"
           >
             Login Member
           </button>
+          <a
+            href="/d/curut1.cbm"
+            className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 hover:border-red-500/50 text-zinc-200 hover:text-white font-bold text-base sm:text-lg tracking-wider uppercase transition-all duration-200 active:scale-95 cursor-pointer shadow-inner"
+          >
+            <span>📥 Download</span>
+          </a>
         </div>
       </div>
 
