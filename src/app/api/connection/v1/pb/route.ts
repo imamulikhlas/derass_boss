@@ -27,11 +27,14 @@ function failureResponse(status: number): NextResponse {
 async function handleValidation(x1: string | null, ip: string | null): Promise<NextResponse> {
   if (!x1) return failureResponse(403);
 
+  // Provider yang dilayani endpoint ini
+  const ENDPOINT_PROVIDER = "nova-v1";
+
   let license: {
     is_active: boolean;
-    provider: string | null;
     expires_at: string | null;
     hit_count: number;
+    pb_providers: { code: string } | null;
   } | null = null;
   let dbError = false;
 
@@ -39,7 +42,7 @@ async function handleValidation(x1: string | null, ip: string | null): Promise<N
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("pb_licenses")
-      .select("is_active, provider, expires_at, hit_count")
+      .select("is_active, expires_at, hit_count, pb_providers(code)")
       .eq("hwid", x1.toLowerCase())
       .maybeSingle();
 
@@ -48,17 +51,17 @@ async function handleValidation(x1: string | null, ip: string | null): Promise<N
     } else {
       license = data as {
         is_active: boolean;
-        provider: string | null;
         expires_at: string | null;
         hit_count: number;
+        pb_providers: { code: string } | null;
       } | null;
     }
-  } catch {
+  } catch (e) {
+    console.error("[PB-VALIDATE] exception:", e);
     dbError = true;
   }
 
-  // DB belum terkonfigurasi/error: fallback ke HWID hardcoded
-  // agar cheat tetap jalan sebelum .env.local diisi.
+  // DB error -> tolak (aman)
   if (dbError) {
     return failureResponse(403);
   }
@@ -69,7 +72,7 @@ async function handleValidation(x1: string | null, ip: string | null): Promise<N
   // Lisensi hanya valid jika is_active true DAN provider cocok DAN belum expired
   const expired =
     !license.is_active ||
-    license.provider !== "nova-v1" ||
+    license.pb_providers?.code !== ENDPOINT_PROVIDER ||
     (license.expires_at && new Date(license.expires_at).getTime() < Date.now());
 
   // Update statistik akses
@@ -87,7 +90,10 @@ async function handleValidation(x1: string | null, ip: string | null): Promise<N
     // statistik gagal tidak boleh memblokir validasi
   }
 
-  if (expired) return failureResponse(403);
+  if (expired) {
+    console.log("[PB-VALIDATE] rejected:", JSON.stringify(license));
+    return failureResponse(403);
+  }
 
   return new NextResponse(buildSuccessResponse(), {
     status: 200,
