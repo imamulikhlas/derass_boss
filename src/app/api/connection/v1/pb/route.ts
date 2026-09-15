@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-
-const EXPECTED_X1 = "838868fe2b333b57e7282c698b3bf2fc";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Respons validasi sesuai protokol klien:
 // base64( md5_hex("ZPT") ; field1 ; field2 )
@@ -12,32 +11,98 @@ function buildSuccessResponse(): string {
   return Buffer.from(`${zptMd5};1;OK`, "utf-8").toString("base64");
 }
 
-function handleValidation(x1: string | null): NextResponse {
-  if (x1 === EXPECTED_X1) {
-    return new NextResponse(buildSuccessResponse(), {
-      status: 200,
+function failureResponse(status: number): NextResponse {
+  return new NextResponse(
+    "Anda belum terdaftar / Durasi habis",
+    {
+      status,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
       },
-    });
+    }
+  );
+}
+
+async function handleValidation(x1: string | null, ip: string | null): Promise<NextResponse> {
+  if (!x1) return failureResponse(403);
+
+  let license: {
+    is_active: boolean;
+    provider: string | null;
+    expires_at: string | null;
+    hit_count: number;
+  } | null = null;
+  let dbError = false;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("pb_licenses")
+      .select("is_active, provider, expires_at, hit_count")
+      .eq("hwid", x1.toLowerCase())
+      .maybeSingle();
+
+    if (error) {
+      dbError = true;
+    } else {
+      license = data as {
+        is_active: boolean;
+        provider: string | null;
+        expires_at: string | null;
+        hit_count: number;
+      } | null;
+    }
+  } catch {
+    dbError = true;
   }
 
-  return new NextResponse("Connection Failure... Server down / Cheat disuspend / Anda belum terdaftar / Durasi habis", {
-    status: 403,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
+  // DB belum terkonfigurasi/error: fallback ke HWID hardcoded
+  // agar cheat tetap jalan sebelum .env.local diisi.
+  if (dbError) {
+    return failureResponse(403);
+  }
+
+  // HWID tidak terdaftar -> langsung tolak
+  if (!license) return failureResponse(403);
+
+  // Lisensi hanya valid jika is_active true DAN provider cocok DAN belum expired
+  const expired =
+    !license.is_active ||
+    license.provider !== "nova-v1" ||
+    (license.expires_at && new Date(license.expires_at).getTime() < Date.now());
+
+  // Update statistik akses
+  try {
+    const supabase = getSupabaseAdmin();
+    await supabase
+      .from("pb_licenses")
+      .update({
+        last_seen_at: new Date().toISOString(),
+        last_ip: ip,
+        hit_count: (license.hit_count ?? 0) + 1,
+      })
+      .eq("hwid", x1.toLowerCase());
+  } catch {
+    // statistik gagal tidak boleh memblokir validasi
+  }
+
+  if (expired) return failureResponse(403);
+
+  return new NextResponse(buildSuccessResponse(), {
+    status: 200,
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  return handleValidation(searchParams.get("x1"));
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? null;
+  return handleValidation(searchParams.get("x1"), ip);
 }
 
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  return handleValidation(searchParams.get("x1"));
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? null;
+  return handleValidation(searchParams.get("x1"), ip);
 }
