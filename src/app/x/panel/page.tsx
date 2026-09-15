@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getSession } from "@/lib/auth";
+import LicenseCreateForm from "@/components/license-create-form";
 import {
   allowedProviderIds,
-  createLicense,
   deleteLicense,
   extendLicense,
   toggleLicense,
@@ -52,59 +52,33 @@ export default async function LicensesPage() {
   const { data: licenses } = await query;
   const rows = (licenses ?? []) as unknown as LicenseRow[];
 
-  // Provider untuk dropdown create (user role tidak punya akses create)
-  let providers: { id: string; code: string; name: string }[] = [];
+  // Provider + paket untuk form create (user role tidak punya akses create)
+  let providers: { id: string; code: string }[] = [];
+  let packages: { id: string; provider_id: string; name: string; duration_days: number; price: number }[] = [];
   if (session.role !== "user") {
-    const { data } = await supabase.from("pb_providers").select("id, code, name").order("code");
+    const { data } = await supabase.from("pb_providers").select("id, code").order("code");
     providers = data ?? [];
     if (session.role === "reseller") {
       const allowed = await allowedProviderIds(session.role, session.uid);
       if (allowed !== "all") providers = providers.filter((p) => allowed.includes(p.id));
     }
+    const providerIds = providers.map((p) => p.id);
+    if (providerIds.length > 0) {
+      const { data: pkgs } = await supabase
+        .from("pb_provider_packages")
+        .select("id, provider_id, name, duration_days, price")
+        .in("provider_id", providerIds)
+        .eq("is_active", true);
+      packages = pkgs ?? [];
+    }
   }
-
-  const inputCls =
-    "rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm outline-none focus:border-red-600";
 
   return (
     <div className="space-y-8">
       {session.role !== "user" && (
         <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
           <h2 className="font-bold mb-4">Daftarkan Lisensi Baru</h2>
-          <form action={createLicense} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-            <div className="sm:col-span-2 space-y-1">
-              <label className="text-xs text-zinc-400">HWID (x1)</label>
-              <input name="hwid" required placeholder="md5 hex" className={`${inputCls} w-full`} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-zinc-400">Provider</label>
-              <select name="provider_id" required className={`${inputCls} w-full`}>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-zinc-400">Durasi (hari)</label>
-              <input name="days" type="number" min={1} defaultValue={30} className={`${inputCls} w-full`} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-zinc-400">Owner email (opsional)</label>
-              <input name="owner_email" type="email" placeholder="user@mail.com" className={`${inputCls} w-full`} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-zinc-400">Catatan</label>
-              <input name="note" placeholder="opsional" className={`${inputCls} w-full`} />
-            </div>
-            <button
-              type="submit"
-              className="sm:col-span-6 rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 font-bold text-sm tracking-wide cursor-pointer"
-            >
-              + SIMPAN LISENSI
-            </button>
-          </form>
+          <LicenseCreateForm providers={providers} packages={packages} />
         </section>
       )}
 
@@ -154,7 +128,18 @@ export default async function LicensesPage() {
                           </form>
                           <form action={extendLicense} className="flex items-center gap-1">
                             <input type="hidden" name="hwid" value={r.hwid} />
-                            <input name="days" type="number" min={1} defaultValue={30} className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-xs" />
+                            <select
+                              name="package_id"
+                              className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-xs"
+                            >
+                              {packages
+                                .filter((p) => p.provider_id === r.provider_id)
+                                .map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name}
+                                  </option>
+                                ))}
+                            </select>
                             <button className="text-zinc-400 hover:text-green-400 cursor-pointer" type="submit">Extend</button>
                           </form>
                           <form action={deleteLicense}>

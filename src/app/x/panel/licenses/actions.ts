@@ -22,25 +22,34 @@ export async function createLicense(formData: FormData) {
 
   const supabase = getSupabaseAdmin();
   const hwid = String(formData.get("hwid") ?? "").trim().toLowerCase();
-  const providerId = String(formData.get("provider_id") ?? "");
-  const days = Math.max(1, parseInt(String(formData.get("days") ?? "30"), 10) || 30);
+  const packageId = String(formData.get("package_id") ?? "");
   const note = String(formData.get("note") ?? "").trim() || null;
   const ownerEmail = String(formData.get("owner_email") ?? "").trim().toLowerCase() || null;
 
-  if (!hwid || !providerId) return;
+  if (!hwid || !packageId) return;
+
+  // Ambil paket -> provider & durasi mengikuti paket
+  const { data: pkg } = await supabase
+    .from("pb_provider_packages")
+    .select("id, provider_id, duration_days, is_active")
+    .eq("id", packageId)
+    .maybeSingle();
+  if (!pkg || !pkg.is_active) return;
 
   // Reseller hanya boleh buat lisensi untuk provider yang ditugaskan
   if (session.role === "reseller") {
     const allowed = await allowedProviderIds(session.role, session.uid);
-    if (allowed !== "all" && !allowed.includes(providerId)) return;
+    if (allowed !== "all" && !allowed.includes(pkg.provider_id)) return;
   }
 
-  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + pkg.duration_days * 24 * 60 * 60 * 1000
+  ).toISOString();
 
   await supabase.from("pb_licenses").upsert(
     {
       hwid,
-      provider_id: providerId,
+      provider_id: pkg.provider_id,
       is_active: true,
       expires_at: expiresAt,
       note,
@@ -88,22 +97,36 @@ export async function toggleLicense(formData: FormData) {
 
 export async function extendLicense(formData: FormData) {
   const hwid = String(formData.get("hwid") ?? "");
-  const days = Math.max(1, parseInt(String(formData.get("days") ?? "30"), 10) || 30);
+  const packageId = String(formData.get("package_id") ?? "");
+  if (!packageId) return;
   if (!(await assertCanManage(hwid))) return;
 
   const supabase = getSupabaseAdmin();
-  const { data } = await supabase
+
+  // Durasi mengikuti paket dari provider lisensi tersebut
+  const { data: lic } = await supabase
     .from("pb_licenses")
-    .select("expires_at")
+    .select("expires_at, provider_id")
     .eq("hwid", hwid)
     .maybeSingle();
-  if (!data) return;
+  if (!lic) return;
 
-  const base = data.expires_at ? new Date(data.expires_at).getTime() : Date.now();
+  const { data: pkg } = await supabase
+    .from("pb_provider_packages")
+    .select("provider_id, duration_days, is_active")
+    .eq("id", packageId)
+    .maybeSingle();
+  if (!pkg || !pkg.is_active || pkg.provider_id !== lic.provider_id) return;
+
+  const base = lic.expires_at ? new Date(lic.expires_at).getTime() : Date.now();
   const from = Math.max(base, Date.now());
   await supabase
     .from("pb_licenses")
-    .update({ expires_at: new Date(from + days * 24 * 60 * 60 * 1000).toISOString() })
+    .update({
+      expires_at: new Date(
+        from + pkg.duration_days * 24 * 60 * 60 * 1000
+      ).toISOString(),
+    })
     .eq("hwid", hwid);
   revalidatePath("/x/panel");
 }
