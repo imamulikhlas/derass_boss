@@ -40,6 +40,14 @@ export async function createLicense(formData: FormData) {
   if (session.role === "reseller") {
     const allowed = await allowedProviderIds(session.role, session.uid);
     if (allowed !== "all" && !allowed.includes(pkg.provider_id)) return;
+
+    // dan tidak boleh menimpa lisensi yang dibuat orang lain
+    const { data: existing } = await supabase
+      .from("pb_licenses")
+      .select("created_by")
+      .eq("hwid", hwid)
+      .maybeSingle();
+    if (existing && existing.created_by !== session.email) return;
   }
 
   const expiresAt = new Date(
@@ -70,10 +78,13 @@ async function assertCanManage(hwid: string): Promise<boolean> {
   const supabase = getSupabaseAdmin();
   const { data } = await supabase
     .from("pb_licenses")
-    .select("provider_id")
+    .select("provider_id, created_by")
     .eq("hwid", hwid)
     .maybeSingle();
   if (!data) return false;
+
+  // Reseller hanya boleh mengelola lisensi yang dia buat sendiri
+  if (data.created_by !== session.email) return false;
 
   const allowed = await allowedProviderIds(session.role, session.uid);
   return allowed !== "all" && allowed.includes(data.provider_id);

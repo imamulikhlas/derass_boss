@@ -31,8 +31,8 @@ export default function LicenseCreateForm({
   return (
     <form action={createLicense} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
       <div className="sm:col-span-2 space-y-1">
-        <label className="text-xs text-zinc-400">HWID (x1)</label>
-        <input name="hwid" required placeholder="md5 hex" className={`${inputCls} w-full`} />
+        <label className="text-xs text-zinc-400">HWID</label>
+        <input name="hwid" required placeholder="HWID" className={`${inputCls} w-full`} />
       </div>
       <div className="space-y-1">
         <label className="text-xs text-zinc-400">Provider</label>

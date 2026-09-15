@@ -44,7 +44,10 @@ export default async function LicensesPage() {
   if (session.role === "reseller") {
     const allowed = await allowedProviderIds(session.role, session.uid);
     if (allowed === "all") return;
-    query = query.in("provider_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
+    // Hanya lisensi milik provider yang di-assign DAN dibuat oleh reseller itu sendiri
+    query = query
+      .in("provider_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"])
+      .eq("created_by", session.email);
   } else if (session.role === "user") {
     query = query.eq("owner_email", session.email.toLowerCase());
   }
